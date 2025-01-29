@@ -831,6 +831,7 @@ class Runner:
             pixels = data["image"].to(device) / 255.0
             masks = data["mask"].to(device) if "mask" in data else None
             height, width = pixels.shape[1:3]
+            image_name = data["image_name"][0] # need an additionnal index because batch_size adds a layer of depth
 
             torch.cuda.synchronize()
             tic = time.time()
@@ -855,7 +856,7 @@ class Runner:
                 canvas = torch.cat(canvas_list, dim=2).squeeze(0).cpu().numpy()
                 canvas = (canvas * 255).astype(np.uint8)
                 imageio.imwrite(
-                    f"{self.render_dir}/{stage}_step{step}_{i:04d}.png",
+                    f"{self.render_dir}/{image_name}",
                     canvas,
                 )
 
