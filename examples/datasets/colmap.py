@@ -26,6 +26,21 @@ def _get_rel_paths(path_dir: str) -> List[str]:
     return paths
 
 
+def get_masks(path_dir: str, name_to_image_id: dict):
+    filenames = os.listdir(path_dir)
+    image_names = [name for name in filenames if len(name)>=5 and name[-4:].lower()=='.jpg']
+    masks = {}
+    for name in image_names:
+        masks[name_to_image_id[name]] = imageio.imread(os.path.join(path_dir, name))
+    return masks
+
+def mask_path(image_path: str):
+    mask_path_temp = image_path.replace("images", "masks")
+    filename = mask_path_temp.split('/')[-1]
+    mask_path_ = os.path.join('/'.join(mask_path_temp.split('/')[:-1]), filename)
+    return mask_path_
+
+
 class Parser:
     """COLMAP parser."""
 
@@ -55,6 +70,9 @@ class Parser:
 
         # Extract extrinsic matrices in world-to-camera format.
         imdata = manager.images
+        self.masks_exist = os.path.exists(os.path.join(data_dir, "masks"))
+        if self.masks_exist:
+            maskdata = get_masks(os.path.join(data_dir, "masks"), manager.name_to_image_id)
         w2c_mats = []
         camera_ids = []
         Ks_dict = dict()
@@ -64,6 +82,7 @@ class Parser:
         bottom = np.array([0, 0, 0, 1]).reshape(1, 4)
         for k in imdata:
             im = imdata[k]
+            if self.masks_exist: mask = maskdata[k]
             rot = im.R()
             trans = im.tvec.reshape(3, 1)
             w2c = np.concatenate([np.concatenate([rot, trans], 1), bottom], axis=0)
@@ -106,7 +125,7 @@ class Parser:
 
             params_dict[camera_id] = params
             imsize_dict[camera_id] = (cam.width // factor, cam.height // factor)
-            mask_dict[camera_id] = None
+            mask_dict[k] = mask if self.masks_exist else None
         print(
             f"[Parser] {len(imdata)} images, taken by {len(set(camera_ids))} cameras."
         )
@@ -203,7 +222,7 @@ class Parser:
         self.Ks_dict = Ks_dict  # Dict of camera_id -> K
         self.params_dict = params_dict  # Dict of camera_id -> params
         self.imsize_dict = imsize_dict  # Dict of camera_id -> (width, height)
-        self.mask_dict = mask_dict  # Dict of camera_id -> mask
+        self.mask_dict = mask_dict  # Dict of image_id -> mask
         self.points = points  # np.ndarray, (num_points, 3)
         self.points_err = points_err  # np.ndarray, (num_points,)
         self.points_rgb = points_rgb  # np.ndarray, (num_points, 3)
@@ -314,22 +333,41 @@ class Dataset:
         self.patch_size = patch_size
         self.load_depths = load_depths
         indices = np.arange(len(self.parser.image_names))
+        # if self.parser.test_every == 0 force the usage of all input images
         if split == "train":
-            self.indices = indices[indices % self.parser.test_every != 0]
+            self.indices = indices[indices % self.parser.test_every != 0] if self.parser.test_every>0 else indices
         else:
-            self.indices = indices[indices % self.parser.test_every == 0]
+            self.indices = indices[indices % self.parser.test_every == 0] if self.parser.test_every>0 else []
+
+        self.images = {index:imageio.imread(self.parser.image_paths[index])[..., :3] for index in self.indices}
+        if parser.masks_exist:
+            mask_paths = {index:mask_path(self.parser.image_paths[index]) for index in self.indices}
+            masks = {index:imageio.imread(mask_paths[index]) for index in self.indices}
+            self.masks={}
+            for index, mask in masks.items():
+                if len(mask.shape)==2:
+                    self.masks[index]=mask
+                elif len(mask.shape)==3:
+                    self.masks[index]=mask[...,0]
+                    print(f"Caution, some masks are not in grayscale. Mask index: {index}; shape: {mask.shape}")
 
     def __len__(self):
         return len(self.indices)
 
     def __getitem__(self, item: int) -> Dict[str, Any]:
         index = self.indices[item]
-        image = imageio.imread(self.parser.image_paths[index])[..., :3]
+        # Load from disk:
+        # image = imageio.imread(self.parser.image_paths[index])[..., :3]
+        # All in memory:
+        image = self.images[index]
         camera_id = self.parser.camera_ids[index]
         K = self.parser.Ks_dict[camera_id].copy()  # undistorted K
         params = self.parser.params_dict[camera_id]
         camtoworlds = self.parser.camtoworlds[index]
-        mask = self.parser.mask_dict[camera_id]
+        # Load from disk:
+        # mask = imageio.imread(mask_path)[..., :3]
+        mask = self.masks[index] if hasattr(self, "masks") else None
+        image_name = self.parser.image_names[index]
 
         if len(params) > 0:
             # Images are distorted. Undistort them.
@@ -355,8 +393,10 @@ class Dataset:
             "camtoworld": torch.from_numpy(camtoworlds).float(),
             "image": torch.from_numpy(image).float(),
             "image_id": item,  # the index of the image in the dataset
+            "image_name": image_name,
         }
         if mask is not None:
+            mask = (np.round(mask/255)*255).astype(np.uint8)  # Rounding up to avoid compression issues (frequent with JPG format)
             data["mask"] = torch.from_numpy(mask).bool()
 
         if self.load_depths:
