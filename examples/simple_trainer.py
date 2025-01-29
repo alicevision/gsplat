@@ -59,6 +59,9 @@ class Config:
     # Use Segmentation masks for training
     use_masks: bool = False
 
+    # For debug purposes: dump all intermediary images
+    dump_all: bool = False
+
     # Path to the Mip-NeRF 360 dataset
     data_dir: str = "data/360_v2/garden"
     # Downsample factor for the dataset
@@ -627,6 +630,39 @@ class Runner:
                 step=step,
                 info=info,
             )
+
+            if cfg.dump_all:
+                renders_noMask, _, _ = self.rasterize_splats(
+                    camtoworlds=camtoworlds,
+                    Ks=Ks,
+                    width=width,
+                    height=height,
+                    sh_degree=sh_degree_to_use,
+                    near_plane=cfg.near_plane,
+                    far_plane=cfg.far_plane,
+                    image_ids=image_ids,
+                    render_mode="RGB+ED" if cfg.depth_loss else "RGB",
+                    masks=None,
+                )
+                if renders_noMask.shape[-1] == 4:
+                    colors_noMask, _ = renders_noMask[..., 0:3], renders_noMask[..., 3:4]
+                else:
+                    colors_noMask, _ = renders_noMask, None
+
+                pixels_ = np.clip(pixels.squeeze(0).cpu().detach().numpy()*255, 0, 255).astype(np.uint8)
+                colors_ = np.clip(colors.squeeze(0).cpu().detach().numpy()*255, 0, 255).astype(np.uint8)
+                colors_noMask_ = np.clip(colors_noMask.squeeze(0).cpu().detach().numpy()*255, 0, 255).astype(np.uint8)
+                mask_ = np.clip(masks.squeeze(0).cpu().detach().numpy()*255, 0, 255).astype(np.uint8)
+                tmp_dir = os.path.join(cfg.data_dir, f'tmp')
+                render_dir, nomaskrenderdir = os.path.join(tmp_dir, 'render'), os.path.join(tmp_dir, 'nomaskrender')
+                mask_dir = os.path.join(tmp_dir, 'mask')
+                for dir in [tmp_dir, render_dir, nomaskrenderdir, mask_dir]:
+                    if not os.path.exists(dir): os.mkdir(dir)
+                image_name = data["image_name"][0]
+                imageio.imwrite(os.path.join(tmp_dir, f'og_{step}_'+image_name), pixels_) # because batch_size=1
+                imageio.imwrite(os.path.join(render_dir, f'render_{step}_'+image_name), colors_)
+                imageio.imwrite(os.path.join(nomaskrenderdir, f'nomaskrender_{step}_'+image_name), colors_noMask_)
+                imageio.imwrite(os.path.join(mask_dir, f'mask_{step}_'+image_name), mask_)
 
             # loss
             l1loss = F.l1_loss(colors, pixels)
