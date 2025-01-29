@@ -53,6 +53,9 @@ class Config:
     # Render trajectory path
     render_traj_path: str = "interp"
 
+    # Use Segmentation masks for training
+    use_masks: bool = False
+
     # Path to the Mip-NeRF 360 dataset
     data_dir: str = "data/360_v2/garden"
     # Downsample factor for the dataset
@@ -557,11 +560,17 @@ class Runner:
             camtoworlds = camtoworlds_gt = data["camtoworld"].to(device)  # [1, 4, 4]
             Ks = data["K"].to(device)  # [1, 3, 3]
             pixels = data["image"].to(device) / 255.0  # [1, H, W, 3]
-            num_train_rays_per_step = (
-                pixels.shape[0] * pixels.shape[1] * pixels.shape[2]
-            )
+            if cfg.use_masks and "mask" in data:
+                # torch.set_num_threads(1)
+                # We set pixels to 0 to skip them,
+                # but it may introduce a bias for the SSIM metric as it impacts low frequencies.
+                pixels[~data["mask"]] = 0
+            if not cfg.disable_viewer:
+                num_train_rays_per_step = (
+                    pixels.shape[0] * pixels.shape[1] * pixels.shape[2]
+                )
             image_ids = data["image_id"].to(device)
-            masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
+            masks = data["mask"].to(device) if ("mask" in data and cfg.use_masks) else None  # [1, H, W]
             if cfg.depth_loss:
                 points = data["points"].to(device)  # [1, M, 2]
                 depths_gt = data["depths"].to(device)  # [1, M]
