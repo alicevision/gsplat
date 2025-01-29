@@ -885,7 +885,7 @@ class Runner:
             ellipse_time += time.time() - tic
 
             colors = torch.clamp(colors, 0.0, 1.0)
-            canvas_list = [pixels, colors]
+            canvas_list = [colors] # original : canvas_list = [pixels, colors]
 
             if world_rank == 0:
                 # write images
