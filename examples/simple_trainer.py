@@ -865,7 +865,7 @@ class Runner:
             camtoworlds = data["camtoworld"].to(device)
             Ks = data["K"].to(device)
             pixels = data["image"].to(device) / 255.0
-            masks = data["mask"].to(device) if "mask" in data else None
+            masks = data["mask"].to(device) if "mask" in data and cfg.use_masks else None
             height, width = pixels.shape[1:3]
             image_name = data["image_name"][0] # need an additionnal index because batch_size adds a layer of depth
 
