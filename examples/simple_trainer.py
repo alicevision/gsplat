@@ -48,9 +48,11 @@ from gsplat.strategy import DefaultStrategy, MCMCStrategy
 @dataclass
 class Config:
     # Disable viewer
-    disable_viewer: bool = False
+    disable_viewer: bool = True
     # Path to the .pt files. If provide, it will skip training and run evaluation only.
     ckpt: Optional[List[str]] = None
+    # Path to the .pt files to load and resume training
+    resume_ckpt: Optional[str] = ""
     # Name of compression strategy to use
     compression: Optional[Literal["png"]] = None
     # Render trajectory path
@@ -1062,6 +1064,12 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
         if cfg.compression is not None:
             runner.run_compression(step=step)
     else:
+        #if a checkpoint was passed, will load the gaussians from there
+        if cfg.resume_ckpt != "":
+            print("Loading from checkpoint")
+            ckpt = torch.load(cfg.resume_ckpt, map_location=runner.device, weights_only=True)
+            for k in runner.splats.keys():
+                runner.splats[k].data = torch.cat([ckpt["splats"][k]])
         runner.train()
 
     if not cfg.disable_viewer:
