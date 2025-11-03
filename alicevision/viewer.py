@@ -175,7 +175,7 @@ def main(local_rank: int, world_rank, world_size: int, args):
         if render_time > max_render_time: max_render_time = render_time
         # Convert and export image
         if imgName is None:
-            imgName = "pose_" + str(pose_id) + ".jpg"
+            imgName = f"pose_{pose_id:06d}.jpg"
         imgBasename = os.path.splitext(imgName)[0]  # Remove extension
         outputFormat = args.output_format
         if not outputFormat or outputFormat == "auto":
